@@ -1,30 +1,9 @@
+require('dotenv').config()
 const express = require('express')
 let morgan = require('morgan')
 const cors = require('cors')
 const app = express()
-
-let persons = [
-  { 
-    "id": 1,
-    "name": "Arto Hellas", 
-    "number": "040-123456"
-  },
-  { 
-    "id": 2,
-    "name": "Ada Lovelace", 
-    "number": "39-44-5323523"
-  },
-  { 
-    "id": 3,
-    "name": "Dan Abramov", 
-    "number": "12-43-234345"
-  },
-  { 
-    "id": 4,
-    "name": "Mary Poppendieck", 
-    "number": "39-23-6423122"
-  }
-]
+const Phonebook = require('./models/phonebook')
 
 app.use(cors())
 app.use(express.static('dist'))
@@ -42,75 +21,98 @@ app.get('/', (request, response) => {
   response.send('<h1>Hello World</h1>')
 })
 
-app.get('/api/persons', (request, response) => {
-  response.json(persons)
+app.get('/api/persons', (request, response) => {  
+  Phonebook.find({}).then(result => {
+    response.json(result)
+  })
 })
 
 app.get('/info', (request, response) => {
-  const people = persons.length    
-  const date = new Date().toLocaleString('es-ES', {
-    weekday: 'long',
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    timeZoneName: 'short'
+  Phonebook.find({}).then(phonebook => {
+    const count = phonebook.length
+    const date = new Date().toLocaleString('es-ES', {
+      weekday: 'long',
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      timeZoneName: 'short'
+    })
+    
+    const content = `
+      <p>Phonebook has info for ${count} people</p>
+      <p>${date}</p>
+    `
+    response.send(content)
+  })  
+})
+
+app.get('/api/persons/:id', (request, response, next) => {
+  Phonebook.findById(request.params.id).then(person => {
+    if (person) {
+      response.json(person)
+    } else {
+      response.statusMessage ='Person not found'
+      response.status(404).end()
+    }
   })
+  .catch(error => next(error))
   
-  const content = `
-    <p>Phonebook has info for ${people} people</p>
-    <p>${date}</p>
-  `
-  response.send(content)
+  
 })
 
-app.get('/api/persons/:id', (request, response) => {
-  const id = Number(request.params.id)
-  const person = persons.find(person => person.id === id)
-  if (person) {
-    response.json(person)
-  } else {
-    response.statusMessage ='Person not found'
-    response.status(404).end()
-  }
-})
-
-app.delete('/api/persons/:id', (request, response) => {
-  const id = Number(request.params.id)
-  persons = persons.filter(person => person.id !== id)
-
-  response.status(204).end()
-})
-
-app.post('/api/persons', (request, response) => {
-  const body = request.body
-
-  if (!body.name || !body.number) {
-    return response.status(400).json({ 
-      error: 'Missing mandatory fields' 
+app.delete('/api/persons/:id', (request, response, next) => {
+  Phonebook.findByIdAndDelete(request.params.id)
+    .then(result => {
+      response.status(204).end()
     })
-  }
-
-  const personExists = persons.find(person => person.name === body.name)
-  if (personExists) {
-    return response.status(400).json({ 
-      error: 'name must be unique' 
-    })
-  }
-
-  const person = {
-    content: body.content,      
-    id: Math.round(Math.random() * 1000),
-    name: body.name,
-    number: body.number
-  }
-
-  persons = [...persons, person]
-
-  response.json(person)
+    .catch(error => next(error))
 })
+
+app.post('/api/persons', (request, response, next) => {
+  const { name, phone } = request.body;
+
+  const newPerson = new Phonebook({
+    name: name,
+    number: phone
+  });
+     
+  newPerson.save().then(result => {
+    response.json(result)
+  })
+  .catch(error => next(error))
+  
+})
+
+app.put('/api/persons/:id', (request, response, next) => {
+  const {name, phone} = request.body
+  const number = phone
+  Phonebook.findByIdAndUpdate(
+    request.params.id, 
+    {name,number}, 
+    { new: true, runValidators: true, context: 'query' }
+  )
+    .then(updatePhonebook => {
+      response.json(updatePhonebook)
+    })
+    .catch(error => next(error))
+})
+
+const errorHandler = (error, request, response, next) => {
+  console.error(error.message)
+
+  if (error.name === 'CastError') {
+    return response.status(400).send({ error: 'malformatted id' })
+  } else if (error.name === 'ValidationError') {
+    return response.status(400).json({ error: error.message })
+  }
+
+  next(error)
+}
+
+app.use(errorHandler)
 
 
 const PORT = process.env.PORT || 4444
